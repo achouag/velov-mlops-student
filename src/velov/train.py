@@ -125,7 +125,7 @@ def train(
             "numpy": np.__version__,
         },
     }
-    (out_dir / METADATA_FILENAME).write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+    (out_dir / METADATA_FILENAME).write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
     return metadata
 
 
