@@ -65,10 +65,18 @@ app = FastAPI(title="Vélo'v availability API", version="1.0.0", lifespan=lifesp
 
 
 # TODO 5 [Should] : GET /health -> {"status": "ok"}
-
+@app.get("/health")
+def health():
+    return {"status": "ok"} 
 
 # TODO 6 [Should] : GET /ready -> 200 + version du modèle si chargé, sinon HTTPException 503
-
+@app.get("/ready")
+def ready():
+    model = STATE["model"]
+    metadata = STATE["metadata"]
+    if model is None or metadata is None:
+        raise HTTPException(status_code=503, detail="Modèle non chargé")
+    return {"status": "ok", "model_version": metadata["model_version"]}
 
 # TODO 7 [Must] : POST /v1/predict
 @app.post("/v1/predict", response_model=PredictionResponse)

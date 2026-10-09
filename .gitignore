@@ -14,3 +14,7 @@ mlruns/
 
 # Secrets
 .env
+
+# Tooling / IDE
+.vscode/
+*.egg-info/
