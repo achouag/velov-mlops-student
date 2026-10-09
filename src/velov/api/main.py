@@ -26,6 +26,7 @@ import numpy as np
 import joblib
 from fastapi import FastAPI, HTTPException
 
+from velov.api.db import init_db, log_prediction
 from velov.api.schemas import PredictionRequest, PredictionResponse  # noqa: F401
 from velov.features import FEATURES, add_features  # noqa: F401
 from velov.train import METADATA_FILENAME, sha256_of
@@ -57,6 +58,13 @@ async def lifespan(app: FastAPI):
         logger.info("Modèle %s chargé", STATE["metadata"]["model_version"])
     except Exception:
         logger.exception("Échec du chargement du modèle depuis %s", model_dir)
+
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        try:
+            init_db(db_url)
+        except Exception:
+            logger.exception("Échec de l'initialisation de la base de données")
     yield
     STATE.update(model=None, metadata=None)
 
@@ -101,13 +109,22 @@ def predict(payload: PredictionRequest):
     # 5. Calculer le timestamp dans 1 heure (t + 1h)
     target_timestamp = payload.timestamp + timedelta(hours=1)
 
-    # 6. Renvoyer la réponse au format PredictionResponse
-    return PredictionResponse(
+    # 6. Renvoyer la réponse au format PredictionResponse et journaliser
+    response = PredictionResponse(
         station_id=payload.station_id,
         target_timestamp=target_timestamp,
         predicted_bikes=predicted,
         model_version=metadata["model_version"],
     )
+
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        try:
+            log_prediction(db_url, payload, response)
+        except Exception:
+            logger.exception("Échec de journalisation de la prédiction en base")
+
+    return response
 
 #   - entrée : PredictionRequest ; sortie : PredictionResponse
 #   - construire un DataFrame d'une ligne, appliquer add_features, sélectionner FEATURES
