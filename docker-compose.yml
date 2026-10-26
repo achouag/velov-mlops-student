@@ -26,9 +26,20 @@ services:
     environment:
       DATABASE_URL: postgresql://velov:velov_password@db:5432/velov
       MODEL_DIR: /app/models
+    volumes:
+      - ./models:/app/models:ro
     depends_on:
       db:
         condition: service_healthy
+
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do python -m velov.ingest --bronze /app/data/bronze; sleep 300; done"]
+    volumes:
+      - ./data:/app/data
 
 volumes:
   pgdata:

@@ -18,18 +18,18 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 
-from datetime import timedelta
-import pandas as pd
-import numpy as np
 import joblib
+import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 
 from velov.api.db import init_db, log_prediction
 from velov.api.schemas import PredictionRequest, PredictionResponse  # noqa: F401
+from velov.artifact import METADATA_FILENAME, sha256_of
 from velov.features import FEATURES, add_features  # noqa: F401
-from velov.train import METADATA_FILENAME, sha256_of
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("velov.api")

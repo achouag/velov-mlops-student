@@ -1,0 +1,6 @@
+# Exemple de configuration crontab pour la VM (Mohamed Gassem - TP3)
+# Éditer via : crontab -e
+# Remplacez /chemin/vers/velov-mlops-student par le chemin absolu du repo sur la VM
+
+# Exécution toutes les 5 minutes de l'ingestion bronze
+*/5 * * * * cd /home/ubuntu/velov-mlops-student && ./.venv/bin/python -m velov.ingest --bronze data/bronze >> /var/log/velov_ingest.log 2>&1

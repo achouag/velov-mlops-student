@@ -13,7 +13,6 @@ Usage :
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import platform
 from datetime import UTC, datetime
@@ -24,14 +23,15 @@ import joblib
 import numpy as np
 import pandas as pd
 import pandera.pandas as pa
-from pandera.typing import Series
 import sklearn
+from pandera.typing import Series
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
+from velov.artifact import METADATA_FILENAME, MODEL_FILENAME, sha256_of
 from velov.features import (
     CATEGORICAL_FEATURES,
     FEATURES,
@@ -41,8 +41,6 @@ from velov.features import (
     make_training_frame,
 )
 
-MODEL_FILENAME = "model.joblib"
-METADATA_FILENAME = "metadata.json"
 SKOPS_TRUSTED_TYPES = ["sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor"]
 
 
@@ -87,12 +85,6 @@ def load_training_data(data_path: Path) -> pd.DataFrame:
     return StationHourly.validate(raw, lazy=True)
 
 
-def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def build_pipeline(seed: int = 42) -> Pipeline:

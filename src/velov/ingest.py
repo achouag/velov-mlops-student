@@ -22,7 +22,7 @@ import hashlib
 import json
 import logging
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -42,8 +42,10 @@ OPEN_METEO_URL = (
 
 def fetch_json(url: str, timeout: float = 10.0) -> dict[str, Any]:
     """Récupère un payload JSON distant avec timeout de 10 secondes."""
-    req = Request(url, headers={"User-Agent": "velov-mlops-pipeline/1.0"})
-    with urlopen(req, timeout=timeout) as resp:
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"URL non supportée : {url}")
+    req = Request(url, headers={"User-Agent": "velov-mlops-pipeline/1.0"})  # noqa: S310
+    with urlopen(req, timeout=timeout) as resp:  # noqa: S310
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -258,7 +260,8 @@ def main() -> None:
         seed_demonstration_bronze(args.bronze)
         return
 
-    # Si le bronze est entièrement vide, on propose ou initialise le dataset de démo pour permettre à dbt build de tourner
+    # Si le bronze est entièrement vide, on initialise le dataset de démo
+    # pour permettre à dbt build et aux tests de tourner immédiatement
     status_files = list(args.bronze.glob("station_status/*/*.json"))
     if not status_files:
         logger.info("Bronze vide détecté : initialisation avec le jeu de démonstration 48h...")

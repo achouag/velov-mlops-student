@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
+
 import psycopg2
-from psycopg2.extras import execute_values
 
 from velov.api.schemas import PredictionRequest, PredictionResponse
 
