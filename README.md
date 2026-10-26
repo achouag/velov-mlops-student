@@ -48,10 +48,34 @@ curl -X POST http://127.0.0.1:8000/v1/predict \
 Le `timestamp` doit porter un fuseau (`+02:00`, `Z`...) : sans fuseau, l'API répond 422.
 Les instants sont renvoyés et journalisés en UTC (`"target_timestamp": "2026-10-06T07:00:00Z"`).
 
+## Pipeline de données (S3)
+
+L'architecture médaillon ELT remplace les données simulées par les flux réels de la Métropole de Lyon (GBFS) et Open-Meteo :
+- **Bronze (`data/bronze/`)** : Instantanés JSON bruts, partitionnés par `dt=YYYY-MM-DD/<key>.json`. Ingestion idempotente et atomique via `src/velov/ingest.py`.
+- **Silver (`velov_dbt/models/staging/`)** : Vues SQL sous DuckDB (`stg_station_information`, `stg_station_status`, `stg_weather`), typées, unnest, passées en UTC et dédoublonnées via `qualify row_number()`.
+- **Gold (`velov_dbt/models/marts/station_hourly`)** : Table d'entraînement horaire sous contrat strict (`contract: enforced: true`), respectant la règle temporelle $]h - 1\text{ h}, h]$ sans fuite (EX-11, EX-12).
+
+### Exécuter le pipeline :
+
+```bash
+# 1. Ingestion bronze (flux en direct ou démo 48h)
+python -m velov.ingest --bronze data/bronze
+# Pour charger le jeu de démo 48h (576 instantanés, 20 stations) :
+python -m velov.ingest --seed-demo
+
+# 2. Modèles dbt et tests de contrat sous DuckDB
+cd velov_dbt
+dbt build --profiles-dir .
+cd ..
+
+# 3. Entraîner le modèle sur la table gold avec validation Pandera
+python -m velov.train --data data/velov.duckdb --out models/
+```
+
 ## Exigences du projet
 
 Le service doit respecter les exigences de [docs/exigences.md](docs/exigences.md), de S1 à S9.
-Chaque rendu indique celles qu'il couvre et comment le vérifier.
+Chaque rendu indique celles qu'il couvre et comment le vérifier (notamment EX-10 à EX-12 pour le pipeline S3).
 
 
 ## Structure

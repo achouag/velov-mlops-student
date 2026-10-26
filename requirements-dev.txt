@@ -5,3 +5,5 @@ httpx==0.28.1
 httpx2==2.13.1
 ruff==0.16.9
 mlflow==3.16.1
+dbt-duckdb==1.11.0
+pandera[pandas]==0.35.0

@@ -25,14 +25,31 @@
 ## 4. Incidents connus
 | Symptôme | Cause probable | Diagnostic | Action |
 |---|---|---|---|
-| `/ready` renvoie 503 | | | |
-| Le conteneur redémarre en boucle | | | |
-| Latence élevée | | | |
+| `/ready` renvoie 503 | Modèle absent ou corrompu | Vérifier les logs : `docker compose logs api` | Réentraîner (`python -m velov.train`) ou restaurer `models/model.joblib` |
+| La collecte s'arrête / Bronze ne grossit plus | Cron arrêté ou flux Grand Lyon indisponible | Vérifier la date du dernier JSON : `ls -l data/bronze/station_status/*/*.json \| tail -n 5` | Relancer manuellement `python -m velov.ingest`, vérifier la connectivité curl vers `https://download.data.grandlyon.com` |
+| Échec `dbt build` (verrou DuckDB) | Base ouverte en écriture par un autre process | Vérifier les processus actifs : `lsof data/velov.duckdb` | S'assurer que les notebooks ou APIs ouvrent DuckDB en `read_only=True` |
+| Anomalie de capteur bloquante sur gold | Contrat de données dbt violé | Lire l'erreur dbt : `cat velov_dbt/logs/dbt.log` | Identifier la station anomalique, corriger ou adapter le seuil `warn_if` / `error_if` |
 
-## 5. Déployer une nouvelle version du modèle
-1.
-2.
-3. Retour arrière (rollback) :
+## 5. Exploitation du pipeline de données (S3)
+
+### Vérifier la fraîcheur de la collecte
+```bash
+# Vérifier les derniers instantanés ingérés
+ls -lt data/bronze/station_status/dt=$(date +%Y-%m-%d)/ | head -n 5
+```
+
+### Relancer ou rattraper une période (Backfill)
+Grâce à l'idempotence (EX-10), le calcul silver et gold peut être rejoué à tout moment depuis les fichiers bronze sans risque de doublon :
+```bash
+# 1. Relancer l'ingestion (ne réécrit aucun fichier déjà présent)
+python -m velov.ingest --bronze data/bronze
+
+# 2. Reconstruire l'intégralité des vues silver et de la table gold
+cd velov_dbt && dbt build --profiles-dir . && cd ..
+
+# 3. Réentraîner le modèle sur la table gold fraîche
+python -m velov.train --data data/velov.duckdb --out models/
+```
 
 ## 6. Contacts et escalade
 -

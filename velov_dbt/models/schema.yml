@@ -1,0 +1,73 @@
+version: 2
+
+models:
+  - name: stg_station_information
+    description: "Vue silver : informations des stations dédoublonnées"
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - unique
+      - name: capacity
+        data_tests:
+          - not_null
+
+  - name: stg_station_status
+    description: "Vue silver : relevés d'état temps réel typés et dédoublonnés"
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_station_information')
+                field: station_id
+      - name: reported_at
+        data_tests:
+          - not_null
+      - name: bikes_available
+        data_tests:
+          - not_null
+
+  - name: stg_weather
+    description: "Vue silver : météo horaire dédoublonnée"
+    columns:
+      - name: hour_ts
+        data_tests:
+          - not_null
+          - unique
+
+  - name: station_hourly
+    description: "Table gold : table d'entraînement horaire sous contrat strict (EX-10, EX-11, EX-12)"
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: station_id
+        data_type: integer
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_station_information')
+                field: station_id
+      - name: timestamp
+        data_type: timestamp with time zone
+        data_tests:
+          - not_null
+      - name: capacity
+        data_type: integer
+        data_tests:
+          - not_null
+      - name: bikes_available
+        data_type: integer
+        data_tests:
+          - not_null
+      - name: temperature
+        data_type: float
+        data_tests:
+          - not_null
+      - name: is_raining
+        data_type: boolean
+        data_tests:
+          - not_null

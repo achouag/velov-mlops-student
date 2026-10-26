@@ -19,9 +19,12 @@ import platform
 from datetime import UTC, datetime
 from pathlib import Path
 
+import duckdb
 import joblib
 import numpy as np
 import pandas as pd
+import pandera.pandas as pa
+from pandera.typing import Series
 import sklearn
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingRegressor
@@ -43,6 +46,47 @@ METADATA_FILENAME = "metadata.json"
 SKOPS_TRUSTED_TYPES = ["sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor"]
 
 
+class StationHourly(pa.DataFrameModel):
+    """Contrat de données Pandera pour la table d'entraînement (EX-11, EX-12)."""
+
+    station_id: Series[int] = pa.Field(gt=0, coerce=True)
+    timestamp: Series[pd.DatetimeTZDtype] = pa.Field(dtype_kwargs={"unit": "us", "tz": "UTC"})
+    capacity: Series[int] = pa.Field(ge=1, le=80, coerce=True)
+    bikes_available: Series[int] = pa.Field(ge=0, coerce=True)
+    temperature: Series[float] = pa.Field(ge=-25, le=50, coerce=True)
+    is_raining: Series[bool]
+
+    @pa.dataframe_check
+    def bikes_le_capacity(cls, df: pd.DataFrame) -> Series[bool]:
+        return df["bikes_available"] <= df["capacity"]
+
+    class Config:
+        strict = True
+        unique = ["station_id", "timestamp"]
+
+
+def load_training_data(data_path: Path) -> pd.DataFrame:
+    """Charge les données d'entraînement (CSV ou DuckDB) et valide le contrat Pandera."""
+    if not data_path.exists():
+        raise FileNotFoundError(f"{data_path} introuvable")
+
+    if data_path.suffix == ".duckdb":
+        con = duckdb.connect(str(data_path), read_only=True)
+        raw = con.execute("select * from station_hourly order by station_id, timestamp").df()
+        con.close()
+    else:
+        raw = pd.read_csv(data_path, parse_dates=["timestamp"])
+
+    # Normalisation du fuseau en UTC us
+    if raw["timestamp"].dt.tz is not None:
+        raw["timestamp"] = raw["timestamp"].dt.tz_convert("UTC")
+    else:
+        raw["timestamp"] = raw["timestamp"].dt.tz_localize("UTC")
+
+    # Validation du contrat avant tout entraînement (EX-12)
+    return StationHourly.validate(raw, lazy=True)
+
+
 def sha256_of(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -62,10 +106,15 @@ def build_pipeline(seed: int = 42) -> Pipeline:
     return Pipeline([("preprocess", preprocess), ("model", model)])
 
 
-def temporal_split(df: pd.DataFrame, test_days: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+def temporal_split(df: pd.DataFrame, test_days: int = 14) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Découpage temporel : on teste sur le futur, jamais sur un échantillon aléatoire."""
-    cutoff = pd.to_datetime(df["timestamp"]).max() - pd.Timedelta(days=test_days)
     ts = pd.to_datetime(df["timestamp"])
+    total_duration = ts.max() - ts.min()
+    if total_duration < pd.Timedelta(days=test_days):
+        cutoff = ts.max() - max(pd.Timedelta(hours=6), total_duration * 0.2)
+    else:
+        cutoff = ts.max() - pd.Timedelta(days=test_days)
+
     train, test = df[ts <= cutoff], df[ts > cutoff]
     if train.empty or test.empty:
         raise ValueError("Split vide : augmenter l'historique ou réduire test_days")
@@ -80,10 +129,7 @@ def train(
     seed: int = 42,
 ) -> dict:
     """Entraîne, évalue contre une baseline, écrit l'artefact. Retourne les métadonnées."""
-    if not data_path.exists():
-        raise FileNotFoundError(f"{data_path} introuvable : lancer d'abord `python -m velov.data`")
-
-    raw = pd.read_csv(data_path, parse_dates=["timestamp"])
+    raw = load_training_data(data_path)
     frame = make_training_frame(raw)
     train_df, test_df = temporal_split(frame, test_days)
 

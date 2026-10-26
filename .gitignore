@@ -18,3 +18,10 @@ mlruns/
 # Tooling / IDE
 .vscode/
 *.egg-info/
+
+# dbt
+velov_dbt/target/
+velov_dbt/dbt_packages/
+velov_dbt/logs/
+velov_dbt/.user.yml
+*.duckdb*

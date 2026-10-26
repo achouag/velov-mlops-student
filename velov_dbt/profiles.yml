@@ -1,0 +1,7 @@
+velov_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "../data/velov.duckdb"
+      threads: 1

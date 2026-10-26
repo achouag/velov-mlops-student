@@ -17,6 +17,9 @@ qui dit oui ou non.
 | EX-07 | Les erreurs importantes sont observables dans les logs | Modèle non chargé, base indisponible : la cause est lisible dans les logs (terminal uvicorn en S1, `docker compose logs` en S2) | S1, S2 |
 | EX-08 | Chaque prédiction est traçable | Entrées, sortie, version du modèle et horodatage UTC journalisés en base | S2 |
 | EX-09 | Un autre binôme peut exploiter le service avec le README et le runbook | Revue croisée : démarrer, vérifier la santé, arrêter, diagnostiquer `/ready` en 503 | S2, S9 |
+| EX-10 | Rejouer le pipeline sur une même période ne change pas la table gold | Idempotence de bout en bout : bronze partitionné par `last_updated`, déduplication silver, dbt build idempotent | S3 |
+| EX-11 | Aucune feature n'utilise une information postérieure à l'instant de prédiction | Calcul point-in-time strict $]h-1\text{ h}, h]$ dans la table gold, aucune fuite temporelle | S3 |
+| EX-12 | Une table gold qui viole le contrat n'est jamais publiée | `contract: enforced: true` dans dbt et validation Pandera avant entraînement | S3 |
 
 ## Conventions associées
 
