@@ -1,0 +1,41 @@
+services:
+  mlflow-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mlflow
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: ${MLFLOW_DB_PASSWORD:-mlflow_password}
+    volumes:
+      - mlflow-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/mlflow.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_DISABLE_TELEMETRY: "true"
+    volumes:
+      - mlartifacts:/mlflow/artifacts
+    depends_on:
+      mlflow-db:
+        condition: service_healthy
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://mlflow:${MLFLOW_DB_PASSWORD:-mlflow_password}@mlflow-db:5432/mlflow
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+      --allowed-hosts "*:5000,localhost:5000,127.0.0.1:5000,mlflow:5000"
+
+volumes:
+  mlflow-pgdata:
+  mlartifacts:
