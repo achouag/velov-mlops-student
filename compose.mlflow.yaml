@@ -1,41 +1,60 @@
+# Stack MLflow (S4) : serveur de suivi + registre, sur la VM du binôme.
+# Elle réutilise le PostgreSQL de compose.yaml (service db, S2-S3) : une seule instance,
+# mais une base dédiée, "mlflow", à côté de la base "velov" des prédictions.
+# Ce fichier complète compose.yaml : on lance toujours les deux ensemble.
+#
+#   docker compose -f compose.yaml -f compose.mlflow.yaml up -d --build
+#   Interface : http://<ip-de-la-vm>:5000
+#
+# Prérequis : POSTGRES_PASSWORD dans .env (le même qu'en S2, rien de nouveau).
+# Attention : docker compose down -v supprime désormais aussi le registre MLflow.
+
 services:
-  mlflow-db:
-    image: postgres:16-alpine
-    restart: unless-stopped
+  # Crée la base "mlflow" si elle n'existe pas, puis s'arrête.
+  # Les scripts d'initialisation de l'image postgres ne tournent qu'au premier démarrage
+  # d'un volume vide : sur le volume pgdata déjà rempli depuis S2, il faut le faire ici.
+  mlflow-db-init:
+    image: postgres:17-alpine
     environment:
-      POSTGRES_DB: mlflow
-      POSTGRES_USER: mlflow
-      POSTGRES_PASSWORD: ${MLFLOW_DB_PASSWORD:-mlflow_password}
-    volumes:
-      - mlflow-pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      PGHOST: db
+      PGUSER: velov
+      PGDATABASE: velov
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, voir .env.example}
+    command:
+      - sh
+      - -c
+      - >
+        psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'mlflow'" | grep -q 1
+        || psql -c "CREATE DATABASE mlflow"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
   mlflow:
     build:
-      context: .
-      dockerfile: docker/mlflow.Dockerfile
-    restart: unless-stopped
+      context: docker
+      dockerfile: mlflow.Dockerfile
+    image: velov-mlflow:3.16.1
+    environment:
+      # Métadonnées (runs, registre) dans la base "mlflow" du service db ;
+      # fichiers (modèles) sur un volume, servis par le serveur.
+      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg://velov:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, voir .env.example}@db:5432/mlflow
+    # Depuis MLflow 3.5, le serveur refuse les en-têtes Host inconnus (protection DNS rebinding).
+    # La liste remplace les valeurs par défaut : on y met tout ce qui doit joindre le serveur,
+    # port compris. 192.168.1.* : le réseau des VM de l'école.
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000 --workers 2
+      --artifacts-destination /mlartifacts
+      --allowed-hosts mlflow:5000,localhost:5000,127.0.0.1:5000,192.168.1.*
     ports:
       - "5000:5000"
-    environment:
-      MLFLOW_DISABLE_TELEMETRY: "true"
     volumes:
-      - mlartifacts:/mlflow/artifacts
+      - mlartifacts:/mlartifacts
     depends_on:
-      mlflow-db:
-        condition: service_healthy
-    command: >
-      mlflow server
-      --backend-store-uri postgresql://mlflow:${MLFLOW_DB_PASSWORD:-mlflow_password}@mlflow-db:5432/mlflow
-      --default-artifact-root /mlflow/artifacts
-      --host 0.0.0.0
-      --port 5000
-      --allowed-hosts "*:5000,localhost:5000,127.0.0.1:5000,mlflow:5000"
+      mlflow-db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
-  mlflow-pgdata:
   mlartifacts:

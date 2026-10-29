@@ -52,6 +52,21 @@ curl -X POST http://127.0.0.1:8000/v1/predict \
 Le `timestamp` doit porter un fuseau (`+02:00`, `Z`...) : sans fuseau, l'API répond 422.
 Les instants sont renvoyés et journalisés en UTC (`"target_timestamp": "2026-10-06T07:00:00Z"`).
 
+## Docker (S2)
+
+La stack `compose.yaml` lance l'API, PostgreSQL (journal des prédictions, EX-08) et le collecteur bronze (S3).
+
+```bash
+cp .env.example .env                 # puis remplacer POSTGRES_PASSWORD (jamais commité, EX-06)
+docker compose up -d --build         # api :8000, db :5432, collector (toutes les 5 min)
+docker compose ps                    # api "healthy" quand /ready répond 200
+curl http://127.0.0.1:8000/ready     # 503 tant qu'aucun modèle n'est dans ./models (voir S4 : scripts/release.sh)
+docker compose logs -f collector     # suivi de la collecte
+docker compose down                  # arrêt (ajouter -v supprime aussi les données PostgreSQL et MLflow)
+```
+
+Sur la VM depuis son poste : `docker --context vm compose up -d --build` (voir le runbook).
+
 ## Pipeline de données (S3)
 
 L'architecture médaillon ELT remplace les données simulées par les flux réels de la Métropole de Lyon (GBFS) et Open-Meteo :
@@ -62,14 +77,16 @@ L'architecture médaillon ELT remplace les données simulées par les flux réel
 ### Exécuter le pipeline :
 
 ```bash
-# 1. Ingestion bronze (flux en direct ou démo 48h)
+# 1. Ingestion bronze : un instantané des flux en direct (en continu : service collector du compose)
 python -m velov.ingest --bronze data/bronze
-# Pour charger le jeu de démo 48h (576 instantanés, 20 stations) :
-python -m velov.ingest --seed-demo
+# Jeu de démo 48h (576 instantanés, 20 stations), uniquement sur demande et dans un bronze séparé,
+# pour ne jamais le mélanger à l'historique réel :
+python -m velov.ingest --bronze data/bronze_demo --seed-demo
 
 # 2. Modèles dbt et tests de contrat sous DuckDB
 cd velov_dbt
-dbt build --profiles-dir .
+dbt build --profiles-dir .                                    # sur data/bronze
+dbt build --profiles-dir . --vars '{bronze: ../data/bronze_demo}'   # sur le jeu de démo
 cd ..
 
 # 3. Entraîner le modèle sur la table gold avec validation Pandera
@@ -81,11 +98,12 @@ python -m velov.train --data data/velov.duckdb --out models/
 La session 4 met en place la traçabilité complète de l'entraînement, la gouvernance de déploiement par un registre d'artefacts MLflow, et la sécurisation par intégration continue.
 
 ### 1. Démarrer le serveur MLflow sur la VM
-La stack MLflow s'exécute séparément de l'API avec une base PostgreSQL dédiée et un volume persistant d'artefacts (`mlartifacts`) :
+La stack MLflow (fournie par le cours) réutilise le PostgreSQL de `compose.yaml` avec une base dédiée `mlflow`, et un volume persistant d'artefacts (`mlartifacts`) servi par le serveur :
 ```bash
-# Démarrer le serveur MLflow (port 5000) et mlflow-db
-docker compose -f compose.mlflow.yaml up -d --build
-docker compose -f compose.mlflow.yaml ps
+# Prérequis : .env avec POSTGRES_PASSWORD (cp .env.example .env)
+# Démarrer le serveur MLflow (port 5000) : base "mlflow" créée dans le PostgreSQL de compose.yaml
+docker compose -f compose.yaml -f compose.mlflow.yaml up -d --build
+docker compose -f compose.yaml -f compose.mlflow.yaml ps
 ```
 Interface accessible sur `http://192.168.1.2xx:5000` (ou en local avec `export MLFLOW_TRACKING_URI=sqlite:///mlflow.db`).
 

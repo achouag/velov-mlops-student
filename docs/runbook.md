@@ -56,13 +56,13 @@ python -m velov.train --data data/velov.duckdb --out models/
 ### Démarrer et administrer la stack MLflow sur la VM
 ```bash
 # Démarrer le serveur MLflow et sa base PostgreSQL
-docker compose -f compose.mlflow.yaml up -d --build
+docker compose -f compose.yaml -f compose.mlflow.yaml up -d --build
 
 # Vérifier la santé des conteneurs
-docker compose -f compose.mlflow.yaml ps
+docker compose -f compose.yaml -f compose.mlflow.yaml ps
 
 # Suivre les journaux du serveur MLflow
-docker compose -f compose.mlflow.yaml logs -f mlflow
+docker compose -f compose.yaml -f compose.mlflow.yaml logs -f mlflow
 ```
 L'interface est accessible sur `http://<ip-vm>:5000` (port unique par binôme).
 

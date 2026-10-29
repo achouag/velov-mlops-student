@@ -25,18 +25,14 @@ ${PYTHON} -m velov.export --alias "${ALIAS}" --out models/
 # 3. Extraction de la version et de l'empreinte git pour le tag d'image immuable
 MODEL_VER=$(${PYTHON} -c "import json; print(json.load(open('models/metadata.json'))['model_version'])")
 COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "latest")
-IMAGE_TAG="velov-api:m${MODEL_VER}-${COMMIT_SHA}"
+export API_TAG="m${MODEL_VER}-${COMMIT_SHA}"
 
-echo "Construction de l'image Docker : ${IMAGE_TAG}"
-docker build -t "${IMAGE_TAG}" -t velov-api:latest .
-
-# 4. Redémarrage du conteneur API avec la nouvelle image
+# 4. Construction de l'image taggée, puis redémarrage de l'API sur CETTE image
+# (compose.yaml : image velov-api:${API_TAG}). Le modèle exporté est monté depuis ./models.
+echo "Construction de l'image Docker : velov-api:${API_TAG}"
+docker compose build api
 echo "Redémarrage du service API..."
-if command -v docker-compose >/dev/null 2>&1; then
-    docker-compose up -d --no-deps --build api
-else
-    docker compose up -d --no-deps --build api
-fi
+docker compose up -d --no-deps api
 
 # 5. Contrôle de santé sur /ready
 echo "Attente de disponibilité de l'API (/ready)..."

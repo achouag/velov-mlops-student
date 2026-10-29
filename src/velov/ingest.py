@@ -247,7 +247,10 @@ def run_ingestion(bronze_dir: Path) -> dict[str, bool]:
     try:
         w_payload = fetch_json(OPEN_METEO_URL)
         cur = w_payload.get("current", {})
-        ts_cur = int(datetime.fromisoformat(cur.get("time", datetime.now(UTC).isoformat())).timestamp())
+        # Open-Meteo renvoie une heure naïve en UTC (timezone=UTC) : on la marque UTC explicitement,
+        # sinon .timestamp() l'interpréterait dans le fuseau de la machine.
+        cur_time = datetime.fromisoformat(cur["time"]).replace(tzinfo=UTC) if "time" in cur else datetime.now(UTC)
+        ts_cur = int(cur_time.timestamp())
         weather_clean = {
             "last_updated": ts_cur,
             "hour_ts": ts_cur,
@@ -275,13 +278,8 @@ def main() -> None:
         seed_demonstration_bronze(args.bronze)
         return
 
-    # Si le bronze est entièrement vide, on initialise le dataset de démo
-    # pour permettre à dbt build et aux tests de tourner immédiatement
-    status_files = list(args.bronze.glob("station_status/*/*.json"))
-    if not status_files:
-        logger.info("Bronze vide détecté : initialisation avec le jeu de démonstration 48h...")
-        seed_demonstration_bronze(args.bronze)
-
+    # Pas de jeu de démo implicite : il se mélangerait à l'historique réel et finirait à l'entraînement.
+    # Pour une démo, lancer explicitement --seed-demo sur un répertoire bronze dédié.
     logger.info("Lancement de la collecte en direct...")
     results = run_ingestion(args.bronze)
     logger.info("Résultats de la collecte : %s", results)

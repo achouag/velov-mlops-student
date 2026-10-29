@@ -1,0 +1,57 @@
+# Stack du service : API + PostgreSQL (S2) + collecteur bronze (S3).
+# Le mot de passe de la base vient de .env (jamais dans git, EX-06) : cp .env.example .env
+#
+#   docker compose up -d --build
+#   Avec MLflow (S4) : docker compose -f compose.yaml -f compose.mlflow.yaml up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: velov
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, voir .env.example}
+      POSTGRES_DB: velov
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U velov -d velov"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    # Tag immuable posé par scripts/release.sh : m<version du modèle>-<commit court> (jamais latest).
+    image: velov-api:${API_TAG:-dev}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://velov:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, voir .env.example}@db:5432/velov
+      MODEL_DIR: /app/models
+    volumes:
+      - ./models:/app/models:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Même UID que le propriétaire de ./data sur la VM (groupe12 = 1000) : sinon appuser ne peut pas y écrire.
+    user: "${COLLECTOR_UID:-1000}:${COLLECTOR_GID:-1000}"
+    # Le HEALTHCHECK de l'image sonde l'API (/ready) : sans objet pour le collecteur.
+    healthcheck:
+      disable: true
+    command: ["sh", "-c", "while true; do python -m velov.ingest --bronze /app/data/bronze; sleep 300; done"]
+    volumes:
+      - ./data:/app/data
+
+volumes:
+  pgdata:
