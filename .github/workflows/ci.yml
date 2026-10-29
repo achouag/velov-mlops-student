@@ -70,6 +70,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
           pip install -e .
+          # data/ est ignoré par git : on génère l'historique simulé (seed fixe) avant d'entraîner
+          python -m velov.data
           python -m velov.train --data data/velov_history.csv --out models/ --version 0.1.0-ci
 
       - name: Build Docker image
