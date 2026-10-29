@@ -13,8 +13,8 @@ services:
       POSTGRES_DB: velov
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Pas de port publié : l'API et MLflow joignent la base par le réseau interne (db:5432).
+    # Évite d'exposer PostgreSQL sur le réseau de la VM et le conflit avec un PostgreSQL local.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U velov -d velov"]
       interval: 5s

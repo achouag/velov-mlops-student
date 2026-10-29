@@ -58,7 +58,7 @@ La stack `compose.yaml` lance l'API, PostgreSQL (journal des prédictions, EX-08
 
 ```bash
 cp .env.example .env                 # puis remplacer POSTGRES_PASSWORD (jamais commité, EX-06)
-docker compose up -d --build         # api :8000, db :5432, collector (toutes les 5 min)
+docker compose up -d --build         # api :8000, db (réseau interne), collector (toutes les 5 min)
 docker compose ps                    # api "healthy" quand /ready répond 200
 curl http://127.0.0.1:8000/ready     # 503 tant qu'aucun modèle n'est dans ./models (voir S4 : scripts/release.sh)
 docker compose logs -f collector     # suivi de la collecte

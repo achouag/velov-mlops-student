@@ -20,6 +20,12 @@ def test_predict_valid(client, valid_payload):
     assert target == datetime(2026, 10, 6, 7, tzinfo=UTC)
 
 
+def test_predict_repond_en_utc(client, valid_payload):
+    """Convention du projet : les instants sont échangés en UTC, même si l'entrée est en +02:00."""
+    r = client.post("/v1/predict", json=valid_payload)
+    assert datetime.fromisoformat(r.json()["target_timestamp"]).utcoffset().total_seconds() == 0
+
+
 def test_predict_rejects_bikes_above_capacity(client, valid_payload):
     r = client.post("/v1/predict", json={**valid_payload, "bikes_available": 25})
     assert r.status_code == 422
