@@ -7,13 +7,15 @@ Ce qu'on distribue (S1) n'est pas "un modèle" mais un paquet :
 
 Usage :
     python -m velov.train --data data/velov_history.csv --out models/
-    python -m velov.train --data data/velov_history.csv --out models/ --mlflow
+    python -m velov.train --data data/velov_history.csv --out models/ --mlflow --seed 42
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import logging
 import platform
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,7 +43,7 @@ from velov.features import (
     make_training_frame,
 )
 
-SKOPS_TRUSTED_TYPES = ["sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor"]
+logger = logging.getLogger("velov.train")
 
 
 class StationHourly(pa.DataFrameModel):
@@ -76,25 +78,40 @@ def load_training_data(data_path: Path) -> pd.DataFrame:
         raw = pd.read_csv(data_path, parse_dates=["timestamp"])
 
     # Normalisation du fuseau en UTC us
-    if raw["timestamp"].dt.tz is not None:
-        raw["timestamp"] = raw["timestamp"].dt.tz_convert("UTC")
-    else:
-        raw["timestamp"] = raw["timestamp"].dt.tz_localize("UTC")
+    if raw["timestamp"].dt.tz is None:
+        raise ValueError("timestamp doit être un datetime avec fuseau horaire explicite (UTC conseillé)")
+    raw["timestamp"] = raw["timestamp"].dt.tz_convert("UTC")
 
     # Validation du contrat avant tout entraînement (EX-12)
     return StationHourly.validate(raw, lazy=True)
 
 
+def compute_content_fingerprint(df: pd.DataFrame) -> str:
+    """Calcule l'empreinte SHA-256 du contenu de la table trié de manière déterministe (EX-13)."""
+    cols = [c for c in RAW_COLUMNS if c in df.columns]
+    sorted_df = df[cols].sort_values(by=["station_id", "timestamp"]).reset_index(drop=True)
+    csv_bytes = sorted_df.to_csv(index=False).encode("utf-8")
+    return hashlib.sha256(csv_bytes).hexdigest()
 
 
-def build_pipeline(seed: int = 42) -> Pipeline:
+def build_pipeline(
+    seed: int = 42,
+    learning_rate: float = 0.1,
+    max_iter: int = 200,
+    max_leaf_nodes: int = 31,
+) -> Pipeline:
     preprocess = ColumnTransformer(
         [
             ("station", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL_FEATURES),
             ("num", "passthrough", NUMERIC_FEATURES),
         ]
     )
-    model = HistGradientBoostingRegressor(max_iter=200, learning_rate=0.1, random_state=seed)
+    model = HistGradientBoostingRegressor(
+        max_iter=max_iter,
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
+        random_state=seed,
+    )
     return Pipeline([("preprocess", preprocess), ("model", model)])
 
 
@@ -119,21 +136,42 @@ def train(
     version: str = "0.1.0",
     test_days: int = 14,
     seed: int = 42,
+    learning_rate: float = 0.1,
+    max_iter: int = 200,
+    max_leaf_nodes: int = 31,
 ) -> dict:
     """Entraîne, évalue contre une baseline, écrit l'artefact. Retourne les métadonnées."""
     raw = load_training_data(data_path)
+    data_fingerprint = compute_content_fingerprint(raw)
+    data_start = raw["timestamp"].min().isoformat()
+    data_end = raw["timestamp"].max().isoformat()
+
     frame = make_training_frame(raw)
     train_df, test_df = temporal_split(frame, test_days)
 
-    pipeline = build_pipeline(seed)
+    pipeline = build_pipeline(
+        seed=seed,
+        learning_rate=learning_rate,
+        max_iter=max_iter,
+        max_leaf_nodes=max_leaf_nodes,
+    )
     pipeline.fit(train_df[FEATURES], train_df[TARGET])
 
     y_test = test_df[TARGET]
     pred = np.clip(pipeline.predict(test_df[FEATURES]), 0, test_df["capacity"])
     mae_model = float(mean_absolute_error(y_test, pred))
+
     # Baseline "persistance" : dans 1 h, il y aura autant de vélos que maintenant.
     # Le modèle doit justifier sa complexité face à cette baseline (exigence EX-05).
     mae_baseline = float(mean_absolute_error(y_test, test_df["bikes_available"]))
+
+    # MAE aux heures de pointe (7h-9h et 17h-19h heure de Lyon)
+    local_hours = test_df["timestamp"].dt.tz_convert("Europe/Paris").dt.hour
+    peak_mask = local_hours.isin([7, 8, 9, 17, 18, 19])
+    if peak_mask.any():
+        mae_peak = float(mean_absolute_error(y_test[peak_mask], pred[peak_mask]))
+    else:
+        mae_peak = mae_model
 
     out_dir.mkdir(parents=True, exist_ok=True)
     model_path = out_dir / MODEL_FILENAME
@@ -147,15 +185,27 @@ def train(
         "input_columns": RAW_COLUMNS,
         "features": FEATURES,
         "target": TARGET,
+        "params": {
+            "seed": seed,
+            "learning_rate": learning_rate,
+            "max_iter": max_iter,
+            "max_leaf_nodes": max_leaf_nodes,
+            "test_days": test_days,
+        },
         "metrics": {
             "mae_model": round(mae_model, 3),
             "mae_baseline_persistence": round(mae_baseline, 3),
+            "mae_model_peak_hours": round(mae_peak, 3),
             "test_days": test_days,
             "n_train": int(len(train_df)),
             "n_test": int(len(test_df)),
         },
         "artifact": {"file": MODEL_FILENAME, "sha256": sha256_of(model_path)},
-        "data_sha256": sha256_of(data_path),
+        "data_sha256": data_fingerprint,
+        "data_period": {
+            "start": data_start,
+            "end": data_end,
+        },
         "runtime": {
             "python": platform.python_version(),
             "scikit-learn": sklearn.__version__,
@@ -167,58 +217,58 @@ def train(
     return metadata
 
 
-def log_to_mlflow(metadata: dict, out_dir: Path) -> None:
-    """Journalise le run et le modèle dans MLflow (aperçu S1, approfondi en S4)."""
-    import mlflow  # import local : MLflow n'est pas requis pour servir le modèle
-    from mlflow.models import infer_signature
-
-    pipeline = joblib.load(out_dir / MODEL_FILENAME)
-    sample = make_training_frame(
-        pd.DataFrame(
-            {
-                "station_id": [1, 1],
-                "timestamp": pd.to_datetime(["2026-06-01T06:00Z", "2026-06-01T07:00Z"]),
-                "capacity": [20, 20],
-                "bikes_available": [8, 5],
-                "temperature": [21.0, 22.0],
-                "is_raining": [False, False],
-            }
-        )
-    )[FEATURES]
-
-    mlflow.set_experiment("velov-availability")
-    with mlflow.start_run(run_name=f"v{metadata['model_version']}"):
-        mlflow.log_params({"model": "HistGradientBoostingRegressor", "test_days": metadata["metrics"]["test_days"]})
-        mlflow.log_metrics({k: v for k, v in metadata["metrics"].items() if k.startswith("mae")})
-        mlflow.sklearn.log_model(
-            pipeline,
-            name="model",
-            signature=infer_signature(sample, pipeline.predict(sample)),
-            input_example=sample,
-            # Depuis MLflow 3.x, sklearn est sérialisé par défaut en skops (format sûr,
-            # sans exécution de code arbitraire), plus en pickle. skops refuse les types
-            # qu'il ne connaît pas : on déclare explicitement ceux qu'on a vérifiés.
-            serialization_format="skops",
-            skops_trusted_types=SKOPS_TRUSTED_TYPES,
-        )
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Entraîne le modèle Vélo'v v0.")
+    parser = argparse.ArgumentParser(description="Entraîne le modèle Vélo'v avec traçabilité.")
     parser.add_argument("--data", type=Path, default=Path("data/velov_history.csv"))
     parser.add_argument("--out", type=Path, default=Path("models"))
     parser.add_argument("--version", default="0.1.0")
-    parser.add_argument("--mlflow", action="store_true", help="journaliser aussi dans MLflow")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--learning-rate", type=float, default=0.1)
+    parser.add_argument("--max-iter", type=int, default=200)
+    parser.add_argument("--max-leaf-nodes", type=int, default=31)
+    parser.add_argument("--test-days", type=int, default=14)
+    parser.add_argument("--mlflow", action="store_true", help="journaliser le run dans MLflow")
+    parser.add_argument("--register", action="store_true", help="enregistrer le modèle dans le registre MLflow")
     args = parser.parse_args()
 
-    metadata = train(args.data, args.out, version=args.version)
+    metadata = train(
+        data_path=args.data,
+        out_dir=args.out,
+        version=args.version,
+        test_days=args.test_days,
+        seed=args.seed,
+        learning_rate=args.learning_rate,
+        max_iter=args.max_iter,
+        max_leaf_nodes=args.max_leaf_nodes,
+    )
     m = metadata["metrics"]
-    print(f"MAE modèle   : {m['mae_model']:.3f} vélos")
-    print(f"MAE baseline : {m['mae_baseline_persistence']:.3f} vélos (persistance)")
-    print(f"Artefact     : {args.out / MODEL_FILENAME} (sha256 {metadata['artifact']['sha256'][:12]}...)")
-    if args.mlflow:
-        log_to_mlflow(metadata, args.out)
-        print("Run journalisé dans MLflow (voir `mlflow ui`)")
+    print(f"MAE modèle        : {m['mae_model']:.3f} vélos")
+    print(f"MAE persistance   : {m['mae_baseline_persistence']:.3f} vélos")
+    print(f"MAE heures pointe : {m['mae_model_peak_hours']:.3f} vélos")
+    print(f"Artefact          : {args.out / MODEL_FILENAME} (sha256 {metadata['artifact']['sha256'][:12]}...)")
+    start_dt = metadata["data_period"]["start"][:10]
+    end_dt = metadata["data_period"]["end"][:10]
+    print(f"Empreinte data    : {metadata['data_sha256'][:12]}... ({start_dt} au {end_dt})")
+
+    if args.mlflow or args.register:
+        from velov.tracking import track_training
+
+        pipeline = joblib.load(args.out / MODEL_FILENAME)
+        raw = load_training_data(args.data)
+        frame = make_training_frame(raw)
+        train_df, _ = temporal_split(frame, args.test_days)
+
+        run_id = track_training(
+            pipeline=pipeline,
+            train_df=train_df,
+            metadata=metadata,
+            out_dir=args.out,
+            data_path=args.data,
+            register=args.register,
+        )
+        print(f"Run journalisé dans MLflow (run_id: {run_id})")
+        if args.register:
+            print("Modèle enregistré dans le registre sous l'alias @challenger")
 
 
 if __name__ == "__main__":

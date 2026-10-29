@@ -1,0 +1,94 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Lint and format check (ruff)
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Run test suite
+        run: pytest
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full git history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install and verify Gitleaks binary
+        run: |
+          GITLEAKS_VERSION="8.24.0"
+          GITLEAKS_SHA256="cb49b7de5ee986510fe8666ca0273a6cc15eb82571f2f14832c9e8920751f3a4"
+          curl -sSL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz
+          sudo mv gitleaks /usr/local/bin/
+
+      - name: Run Gitleaks scan on repository
+        run: gitleaks git . --redact -v
+
+  image:
+    runs-on: ubuntu-latest
+    needs: [tests, secrets]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Train CI test model
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e .
+          python -m velov.train --data data/velov_history.csv --out models/ --version 0.1.0-ci
+
+      - name: Build Docker image
+        run: docker build -t velov-api:test .
+
+      - name: Start container and verify readiness
+        run: |
+          docker run -d --name velov-api-test -p 8000:8000 velov-api:test
+          for i in {1..30}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ready || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "API is ready (HTTP 200)"
+              docker stop velov-api-test
+              exit 0
+            fi
+            echo "Waiting for /ready (status $STATUS)..."
+            sleep 1
+          done
+          echo "Readiness check failed after 30 seconds. Dumping container logs:"
+          docker logs velov-api-test
+          docker stop velov-api-test
+          exit 1

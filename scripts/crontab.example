@@ -4,3 +4,7 @@
 
 # Exécution toutes les 5 minutes de l'ingestion bronze
 */5 * * * * cd /home/ubuntu/velov-mlops-student && ./.venv/bin/python -m velov.ingest --bronze data/bronze >> /var/log/velov_ingest.log 2>&1
+
+# Réentraînement continu hebdomadaire chaque lundi à 06h00 (S4 - Continuous Training)
+# Évalue la règle de promotion et enregistre le challenger dans le registre MLflow
+0 6 * * 1 cd /home/ubuntu/velov-mlops-student && MLFLOW_TRACKING_URI=http://127.0.0.1:5000 ./.venv/bin/python -m velov.retrain --data data/velov.duckdb --version "$(date +\%Y.\%m.\%d)" >> /var/log/velov_retrain.log 2>&1

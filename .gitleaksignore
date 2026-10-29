@@ -1,0 +1,2 @@
+# .gitleaksignore : faux secrets d'exercices d'audit documentés (Slide 33)
+883c7f0b3c9ea93cd6fe72d02210e313a701e881:exercices/s2_audit/Dockerfile.ia:generic-api-key:20

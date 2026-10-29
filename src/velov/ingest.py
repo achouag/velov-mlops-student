@@ -35,8 +35,7 @@ GBFS_BASE_URL = "https://download.data.grandlyon.com/files/rdata/jcd_jcdecaux.jc
 GBFS_STATUS_URL = f"{GBFS_BASE_URL}/station_status.json"
 GBFS_INFO_URL = f"{GBFS_BASE_URL}/station_information.json"
 OPEN_METEO_URL = (
-    "https://api.open-meteo.com/v1/forecast?latitude=45.75&longitude=4.85"
-    "&current=temperature_2m,rain&timezone=UTC"
+    "https://api.open-meteo.com/v1/forecast?latitude=45.75&longitude=4.85&current=temperature_2m,rain&timezone=UTC"
 )
 
 
@@ -115,10 +114,26 @@ def seed_demonstration_bronze(bronze_dir: Path, n_stations: int = 20, hours: int
     # 1. station_information (stations 10001 à 10020)
     # 20 stations avec capacités cohérentes avec le flux réel et les slides (10003=32, 10004=10/38)
     real_capacities = {
-        10001: 30, 10002: 55, 10003: 32, 10004: 10, 10005: 35,
-        10006: 46, 10007: 20, 10008: 24, 10009: 22, 10010: 16,
-        10011: 16, 10012: 16, 10013: 20, 10014: 28, 10015: 18,
-        10016: 17, 10017: 15, 10018: 24, 10019: 30, 10020: 25,
+        10001: 30,
+        10002: 55,
+        10003: 32,
+        10004: 10,
+        10005: 35,
+        10006: 46,
+        10007: 20,
+        10008: 24,
+        10009: 22,
+        10010: 16,
+        10011: 16,
+        10012: 16,
+        10013: 20,
+        10014: 28,
+        10015: 18,
+        10016: 17,
+        10017: 15,
+        10018: 24,
+        10019: 30,
+        10020: 25,
     }
 
     stations_info = []
@@ -151,9 +166,9 @@ def seed_demonstration_bronze(bronze_dir: Path, n_stations: int = 20, hours: int
     # 2. weather horaire
     for h in range(hours + 1):
         w_ts = start_ts + h * 3600
-        hour_of_day = (datetime.fromtimestamp(w_ts, tz=UTC).hour)
+        hour_of_day = datetime.fromtimestamp(w_ts, tz=UTC).hour
         temp = round(9.0 + 5.0 * math.sin((hour_of_day - 6) / 24 * 2 * math.pi), 1)
-        is_rain = (h % 11 == 0)
+        is_rain = h % 11 == 0
         w_payload = {
             "last_updated": w_ts,
             "hour_ts": w_ts,

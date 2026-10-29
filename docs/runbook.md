@@ -51,5 +51,41 @@ cd velov_dbt && dbt build --profiles-dir . && cd ..
 python -m velov.train --data data/velov.duckdb --out models/
 ```
 
-## 6. Contacts et escalade
+## 6. Exploitation MLflow et livraison du modèle (S4)
+
+### Démarrer et administrer la stack MLflow sur la VM
+```bash
+# Démarrer le serveur MLflow et sa base PostgreSQL
+docker compose -f compose.mlflow.yaml up -d --build
+
+# Vérifier la santé des conteneurs
+docker compose -f compose.mlflow.yaml ps
+
+# Suivre les journaux du serveur MLflow
+docker compose -f compose.mlflow.yaml logs -f mlflow
+```
+L'interface est accessible sur `http://<ip-vm>:5000` (port unique par binôme).
+
+### Déployer une nouvelle version du modèle (@champion)
+Le passage en production est orchestré par le script de release :
+```bash
+# Exporte le @champion depuis le registre, build l'image immuable et redémarre l'API
+./scripts/release.sh
+
+# Vérifier l'identité et le run MLflow du modèle servi
+curl -s http://127.0.0.1:8000/v1/model | jq .registry
+```
+
+### Retour arrière immédiat (Rollback @previous-champion)
+En cas de dérive de performance, anomalie de prédiction ou incident critique :
+```bash
+# 1. Rollback via l'alias de secours
+./scripts/release.sh previous-champion
+
+# 2. Vérification immédiate que l'ancien modèle est rétabli
+curl -s http://127.0.0.1:8000/v1/model | jq .registry
+curl -s http://127.0.0.1:8000/ready
+```
+
+## 7. Contacts et escalade
 -

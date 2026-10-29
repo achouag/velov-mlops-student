@@ -20,6 +20,9 @@ qui dit oui ou non.
 | EX-10 | Rejouer le pipeline sur une même période ne change pas la table gold | Idempotence de bout en bout : bronze partitionné par `last_updated`, déduplication silver, dbt build idempotent | S3 |
 | EX-11 | Aucune feature n'utilise une information postérieure à l'instant de prédiction | Calcul point-in-time strict $]h-1\text{ h}, h]$ dans la table gold, aucune fuite temporelle | S3 |
 | EX-12 | Une table gold qui viole le contrat n'est jamais publiée | `contract: enforced: true` dans dbt et validation Pandera avant entraînement | S3 |
+| EX-13 | Le modèle servi est retrouvable jusqu'à son code et ses données | `GET /v1/model` donne la version du registre et le run ; le run porte commit, empreinte, paramètres, métriques | S4 |
+| EX-14 | Un modèle n'est promu que s'il bat le champion et la persistance sur la même fenêtre | Sortie de `velov.promote`, tag promotion sur la version, alias `@previous-champion` | S4 |
+| EX-15 | Rien n'arrive sur main sans CI au vert | Workflow CI GitHub Actions : lint, tests dont qualité de modèle, secrets, image conteneurisée | S4 |
 
 ## Conventions associées
 

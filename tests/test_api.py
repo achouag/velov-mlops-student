@@ -23,3 +23,25 @@ def test_predict_valid(client, valid_payload):
 def test_predict_rejects_bikes_above_capacity(client, valid_payload):
     r = client.post("/v1/predict", json={**valid_payload, "bikes_available": 25})
     assert r.status_code == 422
+
+
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}
+
+
+def test_ready(client):
+    r = client.get("/ready")
+    assert r.status_code == 200
+    assert "model_version" in r.json()
+
+
+def test_get_model_info(client):
+    r = client.get("/v1/model")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["model_name"] == "velov-availability"
+    assert "model_version" in data
+    assert "metrics" in data
+    assert "artifact" in data

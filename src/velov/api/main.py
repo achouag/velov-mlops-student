@@ -75,7 +75,8 @@ app = FastAPI(title="Vélo'v availability API", version="1.0.0", lifespan=lifesp
 # TODO 5 [Should] : GET /health -> {"status": "ok"}
 @app.get("/health")
 def health():
-    return {"status": "ok"} 
+    return {"status": "ok"}
+
 
 # TODO 6 [Should] : GET /ready -> 200 + version du modèle si chargé, sinon HTTPException 503
 @app.get("/ready")
@@ -85,6 +86,7 @@ def ready():
     if model is None or metadata is None:
         raise HTTPException(status_code=503, detail="Modèle non chargé")
     return {"status": "ok", "model_version": metadata["model_version"]}
+
 
 # TODO 7 [Must] : POST /v1/predict
 @app.post("/v1/predict", response_model=PredictionResponse)
@@ -125,6 +127,29 @@ def predict(payload: PredictionRequest):
             logger.exception("Échec de journalisation de la prédiction en base")
 
     return response
+
+
+@app.get("/v1/model")
+def get_model_info():
+    """Retourne les métadonnées et le lien au registre du modèle actuellement servi (EX-13)."""
+    model = STATE["model"]
+    metadata = STATE["metadata"]
+    if model is None or metadata is None:
+        raise HTTPException(status_code=503, detail="Modèle non chargé")
+    return {
+        "model_name": metadata.get("model_name"),
+        "model_version": metadata.get("model_version"),
+        "trained_at": metadata.get("trained_at"),
+        "task": metadata.get("task"),
+        "metrics": metadata.get("metrics"),
+        "params": metadata.get("params"),
+        "artifact": metadata.get("artifact"),
+        "data_sha256": metadata.get("data_sha256"),
+        "data_period": metadata.get("data_period"),
+        "registry": metadata.get("registry"),
+        "runtime": metadata.get("runtime"),
+    }
+
 
 #   - entrée : PredictionRequest ; sortie : PredictionResponse
 #   - construire un DataFrame d'une ligne, appliquer add_features, sélectionner FEATURES

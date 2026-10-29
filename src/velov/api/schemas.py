@@ -22,9 +22,7 @@ class PredictionRequest(BaseModel):
              (indice : @field_validator("timestamp") et value.astimezone(UTC)).
     """
 
-    model_config = ConfigDict(
-        extra="forbid"
-    )
+    model_config = ConfigDict(extra="forbid")
 
     station_id: int = Field(..., ge=1, description="Identifiant de la station")
     timestamp: AwareDatetime = Field(..., description="Instant de l'observation")
@@ -38,8 +36,6 @@ class PredictionRequest(BaseModel):
         if self.bikes_available > self.capacity:
             raise ValueError("bikes_available doit être inférieur ou égal à capacity")
         return self
-
-
 
 
 class PredictionResponse(BaseModel):
